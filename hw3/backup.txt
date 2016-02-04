@@ -1,0 +1,307 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# DATASCI W261: Machine Learning at Scale"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Name: Prabhakar Gundugola <br>\n",
+    "Email: prabhakar@berkeley.edu <br>\n",
+    "Time of Initial Submission: Feb 1, 2016 <br>\n",
+    "W261-3: Spring 2016 <br>\n",
+    "Week 3: Homework 3 <br>\n",
+    "Date: February 1, 2016 <br>"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# HW3.0\n",
+    "#### What is a merge sort? \n",
+    "Merge sort is an efficient, general-purpose, comparison based sorting algorithm for rearranging lists into a specified order.\n",
+    "\n",
+    "![Mergesort algorithm](mergesort.PNG)\n",
+    "\n",
+    "Mergesort works as follows:\n",
+    "- Divide the unsorted list into n sublists, each containing only 1 element.\n",
+    "- Merge sublists repeatedly into sorted sublists until there is only 1 sublist remaining. \n",
+    "\n",
+    "**Where is it used in Hadoop?**\n",
+    "Mergesort is used in sort and shuffle phase of hadoop between Map and Reduce phases.\n",
+    "\n",
+    "#### How is  a combiner function in the context of Hadoop?\n",
+    "A combiner, also known as a semi-reducer, accepts the inputs from the Map procedure and thereafter passes the output of key,value pairs to the Reduce procedure.\n",
+    "\n",
+    "It is used in between Map and Reduce procedures to reduce the volume of data transfer between Map and Reduce when the output of Map phase is very large.\n",
+    "\n",
+    "![Combiner - Multiple reducers](combiner.PNG)\n",
+    "\n",
+    "#### Give an example where it can be used and justify why it should be used in the context of this problem.\n",
+    "An example where a combiner is required is word count in large number of documents. A map emits a (key, value) pair with (word, 1) for each and every word in the document. The output of Map phase is very large and to reduce the volume of data transfer to reduce phase, we need a combiner that aggregates the values by key.\n",
+    "\n",
+    "#### What is the Hadoop shuffle?\n",
+    "Hadoop shuffle is the process of transferring data from mappers to reducers based on a partitioning function. It sorts and combines all the data based on a partitioning key and ensures that all the (key, value) pairs of the same key are sent to the same reducer."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# HW 3.1. Use Counters to do EDA (exploratory data analysis and to monitor progress)\n",
+    "Counters are lightweight objects in Hadoop that allow you to keep track of system progress in both the map and reduce stages of processing. By default, Hadoop defines a number of standard counters in \"groups\"; these show up in the jobtracker webapp, giving you information such as \"Map input records\", \"Map output records\", etc. \n",
+    "\n",
+    "While processing information/data using MapReduce job, it is a challenge to monitor the progress of parallel threads running across nodes of distributed clusters. Moreover, it is also complicated to distinguish between the data that has been processed and the data which is yet to be processed. The MapReduce Framework offers a provision of user-defined Counters, which can be effectively utilized to monitor the progress of data across nodes of distributed clusters.\n",
+    "\n",
+    "Use the Consumer Complaints  Dataset provide here to complete this question:\n",
+    "\n",
+    "     https://www.dropbox.com/s/vbalm3yva2rr86m/Consumer_Complaints.csv?dl=0\n",
+    "\n",
+    "The consumer complaints dataset consists of diverse consumer complaints, which have been reported across the United States regarding various types of loans. The dataset consists of records of the form:\n",
+    "\n",
+    "Complaint ID,Product,Sub-product,Issue,Sub-issue,State,ZIP code,Submitted via,Date received,Date sent to company,Company,Company response,Timely response?,Consumer disputed?\n",
+    "\n",
+    "Here’s is the first few lines of the  of the Consumer Complaints  Dataset:\n",
+    "\n",
+    "Complaint ID,Product,Sub-product,Issue,Sub-issue,State,ZIP code,Submitted via,Date received,Date sent to company,Company,Company response,Timely response?,Consumer disputed?\n",
+    "1114245,Debt collection,Medical,Disclosure verification of debt,Not given enough info to verify debt,FL,32219,Web,11/13/2014,11/13/2014,\"Choice Recovery, Inc.\",Closed with explanation,Yes,\n",
+    "1114488,Debt collection,Medical,Disclosure verification of debt,Right to dispute notice not received,TX,75006,Web,11/13/2014,11/13/2014,\"Expert Global Solutions, Inc.\",In progress,Yes,\n",
+    "1114255,Bank account or service,Checking account,Deposits and withdrawals,,NY,11102,Web,11/13/2014,11/13/2014,\"FNIS (Fidelity National Information Services, Inc.)\",In progress,Yes,\n",
+    "1115106,Debt collection,\"Other (phone, health club, etc.)\",Communication tactics,Frequent or repeated calls,GA,31721,Web,11/13/2014,11/13/2014,\"Expert Global Solutions, Inc.\",In progress,Yes,\n",
+    "\n",
+    "User-defined Counters\n",
+    "\n",
+    "Now, let’s use Hadoop Counters to identify the number of complaints pertaining to debt collection, mortgage and other categories (all other categories get lumped into this one) in the consumer complaints dataset. Basically produce the distribution of the Product column in this dataset using counters (limited to 3 counters here).\n",
+    "\n",
+    "Hadoop offers Job Tracker, an UI tool to determine the status and statistics of all jobs. Using the job tracker UI, developers can view the Counters that have been created. Screenshot your  job tracker UI as your job completes and include it here. Make sure that your user defined counters are visible. "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Writing mapper.py\n"
+     ]
+    }
+   ],
+   "source": [
+    "%%writefile mapper.py\n",
+    "#!/usr/bin/python\n",
+    "## mapper.py\n",
+    "## Author: Prabhakar Gundugola\n",
+    "## Description: mapper code for HW3.1\n",
+    "\n",
+    "import sys\n",
+    "\n",
+    "for line in sys.stdin:\n",
+    "    tokens = line.strip().split(\",\")\n",
+    "    \n",
+    "    # Skip the Header\n",
+    "    if tokens[0] == 'Complaint ID':\n",
+    "        continue\n",
+    "    \n",
+    "    product = 'none'\n",
+    "    if 'Debt' in tokens[1]:\n",
+    "        product = 'debt'\n",
+    "    elif 'Mortgage' in tokens[1]:\n",
+    "        product = 'mortgage'\n",
+    "    else:\n",
+    "        product = 'others'\n",
+    "    \n",
+    "    sys.stderr.write(\"reporter:counter:Tokens, \" + product + ', 1\\n')\n",
+    "    print product + '\\t' + str(1)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Writing reducer.py\n"
+     ]
+    }
+   ],
+   "source": [
+    "%%writefile reducer.py\n",
+    "#!/usr/bin/python\n",
+    "## reducer.py\n",
+    "## Author: Prabhakar Gundugola\n",
+    "## Description: reducer code for HW3.1\n",
+    "\n",
+    "import sys\n",
+    "\n",
+    "prev_word = None\n",
+    "counts = 0\n",
+    "for line in sys.stdin:\n",
+    "    word, value = line.strip.split('\\t')\n",
+    "    \n",
+    "    if prev_word != word:\n",
+    "        if prev_word is not None:\n",
+    "            print prev_word + '\\t' + counts\n",
+    "            sys.stderr.write('reporter:counter:Tokens, ' \n",
+    "                             + prev_word + ', ' + counts + '\\n')\n",
+    "        \n",
+    "        prev_word = word\n",
+    "        counts = 0\n",
+    "    counts += 1\n",
+    "\n",
+    "print prev_word + '\\t' + counts\n",
+    "sys.stderr.write('reporter:counter:Tokens, ' + prev_word + ', ' + counts + '\\n')\n",
+    "        "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "16/01/30 21:36:20 WARN util.NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable\n",
+      "rm: `/user/root/wk3/hw31': No such file or directory\n",
+      "16/01/30 21:36:22 WARN util.NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable\n",
+      "16/01/30 21:36:25 WARN util.NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Ensure hw31 folder doesn't exist\n",
+    "!hdfs dfs -rm -r /user/root/wk3/hw31\n",
+    "\n",
+    "# Create HDFS input folder\n",
+    "!hdfs dfs -mkdir -p /user/root/wk3/hw31/input\n",
+    "\n",
+    "# Copy the input file\n",
+    "!hdfs dfs -put Consumer_Complaints.csv /user/root/wk3/hw31/input"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "**Run Hadoop Streaming job**"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": false
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "16/01/30 21:40:14 WARN util.NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable\n",
+      "rm: `/user/root/wk3/hw31/output': No such file or directory\n",
+      "16/01/30 21:40:16 WARN util.NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable\n",
+      "16/01/30 21:40:17 INFO Configuration.deprecation: session.id is deprecated. Instead, use dfs.metrics.session-id\n",
+      "16/01/30 21:40:17 INFO jvm.JvmMetrics: Initializing JVM Metrics with processName=JobTracker, sessionId=\n",
+      "16/01/30 21:40:17 INFO jvm.JvmMetrics: Cannot initialize JVM Metrics with processName=JobTracker, sessionId= - already initialized\n",
+      "16/01/30 21:40:18 INFO mapred.FileInputFormat: Total input paths to process : 1\n",
+      "16/01/30 21:40:18 INFO mapreduce.JobSubmitter: number of splits:1\n",
+      "16/01/30 21:40:18 INFO mapreduce.JobSubmitter: Submitting tokens for job: job_local1443964317_0001\n",
+      "16/01/30 21:40:18 INFO mapreduce.Job: The url to track the job: http://localhost:8080/\n",
+      "16/01/30 21:40:18 INFO mapred.LocalJobRunner: OutputCommitter set in config null\n",
+      "16/01/30 21:40:18 INFO mapreduce.Job: Running job: job_local1443964317_0001\n",
+      "16/01/30 21:40:18 INFO mapred.LocalJobRunner: OutputCommitter is org.apache.hadoop.mapred.FileOutputCommitter\n",
+      "16/01/30 21:40:18 INFO output.FileOutputCommitter: File Output Committer Algorithm version is 1\n",
+      "16/01/30 21:40:18 INFO mapred.LocalJobRunner: Waiting for map tasks\n",
+      "16/01/30 21:40:18 INFO mapred.LocalJobRunner: Starting task: attempt_local1443964317_0001_m_000000_0\n",
+      "16/01/30 21:40:18 INFO output.FileOutputCommitter: File Output Committer Algorithm version is 1\n",
+      "16/01/30 21:40:18 INFO mapred.Task:  Using ResourceCalculatorProcessTree : [ ]\n",
+      "16/01/30 21:40:18 INFO mapred.MapTask: Processing split: hdfs://localhost:54310/user/root/wk3/hw31/input/Consumer_Complaints.csv:0+50906486\n",
+      "16/01/30 21:40:18 INFO mapred.MapTask: numReduceTasks: 1\n",
+      "16/01/30 21:40:18 INFO mapred.MapTask: (EQUATOR) 0 kvi 26214396(104857584)\n",
+      "16/01/30 21:40:18 INFO mapred.MapTask: mapreduce.task.io.sort.mb: 100\n",
+      "16/01/30 21:40:18 INFO mapred.MapTask: soft limit at 83886080\n",
+      "16/01/30 21:40:18 INFO mapred.MapTask: bufstart = 0; bufvoid = 104857600\n",
+      "16/01/30 21:40:18 INFO mapred.MapTask: kvstart = 26214396; length = 6553600\n",
+      "16/01/30 21:40:18 INFO mapred.MapTask: Map output collector class = org.apache.hadoop.mapred.MapTask$MapOutputBuffer\n",
+      "16/01/30 21:40:18 INFO streaming.PipeMapRed: PipeMapRed exec [/root/hw3/./mapper.py]\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: mapred.task.id is deprecated. Instead, use mapreduce.task.attempt.id\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: user.name is deprecated. Instead, use mapreduce.job.user.name\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: map.input.start is deprecated. Instead, use mapreduce.map.input.start\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: mapred.task.is.map is deprecated. Instead, use mapreduce.task.ismap\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: mapred.tip.id is deprecated. Instead, use mapreduce.task.id\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: mapred.skip.on is deprecated. Instead, use mapreduce.job.skiprecords\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: mapred.task.partition is deprecated. Instead, use mapreduce.task.partition\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: map.input.length is deprecated. Instead, use mapreduce.map.input.length\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: mapred.local.dir is deprecated. Instead, use mapreduce.cluster.local.dir\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: mapred.work.output.dir is deprecated. Instead, use mapreduce.task.output.dir\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: map.input.file is deprecated. Instead, use mapreduce.map.input.file\n",
+      "16/01/30 21:40:18 INFO Configuration.deprecation: mapred.job.id is deprecated. Instead, use mapreduce.job.id\n",
+      "16/01/30 21:40:18 INFO streaming.PipeMapRed: R/W/S=1/0/0 in:NA [rec/s] out:NA [rec/s]\n",
+      "16/01/30 21:40:18 INFO streaming.PipeMapRed: R/W/S=10/0/0 in:NA [rec/s] out:NA [rec/s]\n",
+      "16/01/30 21:40:18 INFO streaming.PipeMapRed: R/W/S=100/0/0 in:NA [rec/s] out:NA [rec/s]\n",
+     ]
+    }
+   ],
+   "source": [
+    "# Ensure ouptut folder doesn't exist\n",
+    "!hdfs dfs -rm -r /user/root/wk3/hw31/output\n",
+    "\n",
+    "# Run Hadoop Streaming job\n",
+    "!hadoop jar hadoop-streaming-2.7.1.jar \\\n",
+    "-mapper mapper.py \\\n",
+    "-reducer reducer.py \\\n",
+    "-input /user/root/wk3/hw31/input \\\n",
+    "-output /user/root/wk3/hw31/output"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 2",
+   "language": "python",
+   "name": "python2"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 2
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython2",
+   "version": "2.7.10"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 0
+}
